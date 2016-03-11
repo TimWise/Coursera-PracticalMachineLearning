@@ -1,0 +1,198 @@
+---
+title: "PML Project - Exploratory Analysis"
+author: "Tim Wise"
+date: "March 2016"
+output: 
+  html_document:
+    toc: yes
+    toc_depth: 4
+---
+
+### Load libraries
+
+```{r}
+suppressMessages(library(AppliedPredictiveModeling))
+suppressMessages(library(caret))
+#install.packages('assertthat')
+suppressMessages(library(assertthat))
+suppressMessages(library(dplyr))
+```
+
+### Download the dataset
+
+Set the working directory manually.
+
+Download the training data set, if necessary:
+```{r}
+url <- 'https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv'
+csv <- './data/pml-training.csv'
+
+if (!file.exists(csv)) {
+  download.file(url, destfile=csv)
+}
+```
+
+
+### Partition into training, test, and validation sets and write back to disk
+
+Create a training, test, and validation sets (60%, 20%, 20%):
+```{r}
+rawDF <- read.csv(csv)
+str(rawDF)
+
+# set seed so splitting is reproducible
+set.seed(3959648)
+
+# 100% -> 60%, 40%
+trainIndex <- createDataPartition(rawDF$classe, p = 0.60, list=FALSE)
+trainSet          <- rawDF[ trainIndex,]
+testValidationSet <- rawDF[-trainIndex,]
+
+# 40% -> 20%, 40%
+testIndex <- createDataPartition(testValidationSet$classe, p = 0.50, list=FALSE) 
+testSet       <- testValidationSet[ testIndex,]
+validationSet <- testValidationSet[-testIndex,]
+```
+
+Verify the sets seem different (that split correctly):
+```{r}
+# Should be about 60/20/20 split
+dim(trainSet)
+dim(testSet)
+dim(validationSet)
+
+# Should not be identical tables
+table(trainSet$user,      trainSet$classe)
+table(testSet$user,       testSet$classe)
+table(validationSet$user, validationSet$classe)
+
+# Should all be true
+length(intersect(trainSet$Column1, testSet$Column1)) == 0
+length(intersect(trainSet$Column1, validationSet$Column1)) == 0
+length(intersect(testSet$Column1,  validationSet$Column1)) == 0
+```
+
+Write data sets to disk:
+```{r}
+trainCsv      <- './data/train.csv'
+testCsv       <- './data/test.csv'
+validationCsv <- './data/validation.csv'
+
+write.csv(file = trainCsv,      x = trainSet,     row.names=FALSE)
+write.csv(file = testCsv,       x = testSet,      row.names=FALSE)
+write.csv(file = validationCsv, x = validationSet,row.names=FALSE)
+```
+
+Read in and verify again:
+```{r}
+trainCsv      <- './data/train.csv'
+testCsv       <- './data/test.csv'
+validationCsv <- './data/validation.csv'
+
+trainSet      <- read.csv(file = trainCsv)
+testSet       <- read.csv(file = testCsv)
+validationSet <- read.csv(file = validationCsv)
+
+# Should be about 60/20/20 split
+dim(trainSet)
+dim(testSet)
+dim(validationSet)
+
+# Should not be identical tables
+table(trainSet$user,      trainSet$classe)
+table(testSet$user,       testSet$classe)
+table(validationSet$user, validationSet$classe)
+
+# Should all be true
+assert_that(length(intersect(trainSet$Column1, testSet$Column1)) == 0)
+assert_that(length(intersect(trainSet$Column1, validationSet$Column1)) == 0)
+assert_that(length(intersect(testSet$Column1,  validationSet$Column1)) == 0)
+```
+
+
+### Clean the Training Set
+
+#### Map Weird Values to NA
+
+We see blanks, NA, and '#DIV/0!' values and this causes some numeric
+fields to be read in as factors:
+```{r}
+trainSet <- read.csv('./data/train.csv')
+str(trainSet)
+```
+
+Reread the file and map the wierd values to NA and suppress factor creation:
+```{r}
+trainSet <- read.csv('./data/train.csv', 
+                     na.string = c('', 'NA', '#DIV/0!'),
+                     stringsAsFactors = FALSE)
+assert_that(length(grep('#DIV', summary(trainSet))) == 0)
+str(trainSet)
+```
+
+#### Remove Time-Windowed Metrics
+
+Reading the paper for the data set, we find there are three kinds of metrics:  
+- Raw metrics reported by the sensors (accelerometer, gyroscope, and magnetometer)  
+- Derived metrics for roll, pitch, and yaw  
+- Summarizations (min, max, etc.) of the derived metrics  
+
+The summarization metrics are not reported for every observation. 
+They are only reported at the end of a sliding window.
+Because of this, we are going to exclude the window summarizations from our 
+analysis. 
+
+We can do this by removing the end-of-window rows:
+```{r}
+table(trainSet$new_window)
+
+trainSet <- filter(trainSet, new_window != 'yes')
+
+table(trainSet$new_window)
+assert_that(length(table(trainSet$new_window)) == 1)
+```
+
+Let's find all the columns that are entirely NA. 
+These will be the window summary metrics:
+```{r}
+isNACol <- unlist(lapply(trainSet, function(x){all(is.na(x))}))
+sort(names(trainSet)[isNACol]) 
+```
+
+Remove those columns:
+```{r}
+trainSet <- trainSet[!isNACol]
+```
+
+#### Remove Identifier Fields
+
+Now let's remove fields that are indentifier fields. This includes:   
+- row numbers  
+- user ids  
+- time period ids   
+```{r}
+ignoreCols <- c('Column1', 
+                'user_name', 
+                'raw_timestamp_part_1',
+                'raw_timestamp_part_2',
+                'cvtd_timestamp',
+                'new_window',
+                'num_window'
+                )
+trainSet <- trainSet[,!names(trainSet) %in% ignoreCols]
+```
+
+#### Factor the Outcome Variable
+
+Finally, change `classe`, the outcome variable, to a factor:
+```{r}
+trainSet$classe <- as.factor(trainSet$classe)
+```
+
+#### The Final Training Set
+
+Here's the data set we'll used to build our model:
+```{r}
+str(trainSet)
+```
+
