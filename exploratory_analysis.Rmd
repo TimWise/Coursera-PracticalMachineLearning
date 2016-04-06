@@ -13,9 +13,23 @@ output:
 ```{r}
 suppressMessages(library(AppliedPredictiveModeling))
 suppressMessages(library(caret))
+suppressMessages(library(rpart))
+suppressMessages(library(tree))
+
 #install.packages('assertthat')
 suppressMessages(library(assertthat))
 suppressMessages(library(dplyr))
+suppressMessages(library(scales))
+
+suppressMessages(library(doParallel))
+```
+
+### Start Cluster 
+
+Turn on parallelism in hopes of speeding things up:
+```{r}
+r.cluster <- makeCluster(detectCores())
+registerDoParallel(r.cluster)
 ```
 
 ### Download the dataset
@@ -78,9 +92,15 @@ trainCsv      <- './data/train.csv'
 testCsv       <- './data/test.csv'
 validationCsv <- './data/validation.csv'
 
-write.csv(file = trainCsv,      x = trainSet,     row.names=FALSE)
-write.csv(file = testCsv,       x = testSet,      row.names=FALSE)
-write.csv(file = validationCsv, x = validationSet,row.names=FALSE)
+if (!file.exists(trainCsv)) {  
+  write.csv(file = trainCsv,      x = trainSet,     row.names=FALSE)
+}  
+if (!file.exists(testCsv)) {  
+  write.csv(file = testCsv,       x = testSet,      row.names=FALSE)
+}  
+if (!file.exists(validationCsv)) {  
+  write.csv(file = validationCsv, x = validationSet,row.names=FALSE)
+}  
 ```
 
 Read in and verify again:
@@ -196,3 +216,122 @@ Here's the data set we'll used to build our model:
 str(trainSet)
 ```
 
+### Decide on the Acceptance Criteria
+
+We are going to use *accurracy* as the acceptance measure.
+
+
+### Potential Models
+
+#### Classification Tree: rpart 
+
+Call the rpart functions directly, rather than implicitly through 
+caret/train:
+```{r}
+#ctrl <- <- rpart.control()
+
+fit.rpart <- rpart(factor(classe) ~ .,  
+                   data   = trainSet,  
+                   method = "class")
+#printcp(fit.rpart)   
+plotcp(fit.rpart)
+```
+
+#### Classification Tree: rpart via train
+
+Let's try a simple classification tree and see what kind of accuracy we get.
+This is mostly to work out the process of modeling building and evaluation.
+I expect we'll be doing random forests, SVDs, or some other more complex
+algorithm for the final analysis.
+
+Create model doing 10-fold cross-validation:
+```{r}
+trc <- trainControl(method = 'cv', number = 10)
+#rpg <- rpart.grid <- expand.grid(.cp=0.0001)
+
+rpart.model <- train(factor(classe) ~ ., 
+                     data = trainSet, 
+                     method    = "rpart",
+                     trControl = trc)
+#                     tuneGrid  = rpg)
+rpart.model
+rpart.model$finalModel
+#printcp(rpart.model$finalModel)
+```
+
+See what the accuracy is on the test data set:
+```{r}
+rpart.predictions <- predict(rpart.model)
+rpart.cm <- confusionMatrix(data = rpart.predictions, reference = trainSet$classe)
+rpart.cm 
+```
+Wow, the overall accuracy on the training set is only `r percent(rpart.cm$overall["Accuracy"])`.
+This won't cut it.
+
+But let's see what the accuracy is on the test data set:
+```{r}
+```
+
+
+#### Classification Tree: tree
+
+Let's call tree() directly and see if we get anything different from rpart():
+```{r}
+set.seed(5321)
+tree.model <- tree(factor(classe) ~ ., data=trainSet)
+tree.model.summary <- summary(tree.model)
+tree.model.summary
+```
+Creates a tree from `r length(tree.model.summary$used)` attributes 
+having `r tree.model.summary$size` leaf nodes 
+and has a missclassification error rate of 
+`r round(tree.model.summary$misclass[1]/tree.model.summary$misclass[2], 4)`  
+
+
+Let's look at the tree:
+```{r}
+plot(tree.model); text(tree.model)
+```
+
+Kinda ugly. 
+
+
+Let's see how well it predicts on the test data 
+[seems like this should be part of the tree result]:
+```{r}
+tree.predictions <- predict(tree.model, trainSet, type = 'class')
+tree.cm <- confusionMatrix(data = tree.predictions, reference = trainSet$classe)
+tree.cm 
+```
+Accuracy on training set is `r percent(tree.cm$overall["Accuracy"])`.
+Much better than rpart(). Why?
+
+
+Let's cross-validate (using 10 folds) using misclass and deviance as measures
+and see if we should prune the tree:
+```{r}
+misclass.cv.tree.model <- cv.tree(tree.model, FUN = prune.tree, method = "misclass")
+dev.cv.tree.model      <- cv.tree(tree.model)
+
+par(mfrow=c(1,2))
+plot(misclass.cv.tree.model)
+plot(dev.cv.tree.model)
+par(mfrow=c(1,1))
+```
+Both graphs continue descreasing, suggesting that the tree is not overfitting
+and that most nodes are needed, say about 16.
+
+
+Look at the summaries:
+```{r}
+misclass.cv.tree.model
+dev.cv.tree.model
+```
+
+  
+### Stop Cluster
+
+Turn off parallelism:
+```{r}
+stopCluster(r.cluster)
+```
