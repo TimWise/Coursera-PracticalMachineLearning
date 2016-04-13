@@ -15,6 +15,7 @@ suppressMessages(library(AppliedPredictiveModeling))
 suppressMessages(library(caret))
 suppressMessages(library(rpart))
 suppressMessages(library(tree))
+suppressMessages(library(randomForest))
 
 #install.packages('assertthat')
 suppressMessages(library(assertthat))
@@ -32,11 +33,11 @@ r.cluster <- makeCluster(detectCores())
 registerDoParallel(r.cluster)
 ```
 
-### Download the dataset
+### Download the datasets
 
-Set the working directory manually.
+Set the working directory manually, to the directory of this .rmd file.
 
-Download the training data set, if necessary:
+Download the training, if necessary:
 ```{r}
 url <- 'https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv'
 csv <- './data/pml-training.csv'
@@ -47,86 +48,71 @@ if (!file.exists(csv)) {
 ```
 
 
-### Partition into training, test, and validation sets and write back to disk
+### Partition into training and test sets, and write back to disk
 
-Create a training, test, and validation sets (60%, 20%, 20%):
+We will partition the given training set (pml-train.csv) into our 
+own training and test sets (my-train.csv and my-train.csv). 
+We will use our training set (my-train.csv) to train and cross-validate models.
+We will compare models using our test set (my-test.csv). 
+After we choose our final model, we will run it on the pristine given, 20 sample, test
+set (pml-test.csv) and submit our answers. 
+
+Create a training and test sets (66%, 34%). 
 ```{r}
 rawDF <- read.csv(csv)
 str(rawDF)
 
-# set seed so splitting is reproducible
+# set seed so results are reproducible
 set.seed(3959648)
 
-# 100% -> 60%, 40%
-trainIndex <- createDataPartition(rawDF$classe, p = 0.60, list=FALSE)
-trainSet          <- rawDF[ trainIndex,]
-testValidationSet <- rawDF[-trainIndex,]
-
-# 40% -> 20%, 40%
-testIndex <- createDataPartition(testValidationSet$classe, p = 0.50, list=FALSE) 
-testSet       <- testValidationSet[ testIndex,]
-validationSet <- testValidationSet[-testIndex,]
+# 100% -> 66%, 34%
+trainIndex <- createDataPartition(rawDF$classe, p = 0.66, list=FALSE)
+trainSet   <- rawDF[ trainIndex,]
+testSet    <- rawDF[-trainIndex,]
 ```
 
-Verify the sets seem different (that split correctly):
+Verify the sets seem different (that we split correctly):
 ```{r}
-# Should be about 60/20/20 split
+# Should be about 2:1 split
 dim(trainSet)
 dim(testSet)
-dim(validationSet)
 
 # Should not be identical tables
 table(trainSet$user,      trainSet$classe)
 table(testSet$user,       testSet$classe)
-table(validationSet$user, validationSet$classe)
 
-# Should all be true
+# Set should not intersect. Is intersection empty?
 length(intersect(trainSet$Column1, testSet$Column1)) == 0
-length(intersect(trainSet$Column1, validationSet$Column1)) == 0
-length(intersect(testSet$Column1,  validationSet$Column1)) == 0
 ```
 
 Write data sets to disk:
 ```{r}
-trainCsv      <- './data/train.csv'
-testCsv       <- './data/test.csv'
-validationCsv <- './data/validation.csv'
+trainCsv      <- './data/my-train.csv'
+testCsv       <- './data/my-test.csv'
 
 if (!file.exists(trainCsv)) {  
-  write.csv(file = trainCsv,      x = trainSet,     row.names=FALSE)
+  write.csv(file = trainCsv, x = trainSet, row.names=FALSE)
 }  
 if (!file.exists(testCsv)) {  
-  write.csv(file = testCsv,       x = testSet,      row.names=FALSE)
-}  
-if (!file.exists(validationCsv)) {  
-  write.csv(file = validationCsv, x = validationSet,row.names=FALSE)
+  write.csv(file = testCsv,  x = testSet,  row.names=FALSE)
 }  
 ```
 
 Read in and verify again:
 ```{r}
-trainCsv      <- './data/train.csv'
-testCsv       <- './data/test.csv'
-validationCsv <- './data/validation.csv'
-
 trainSet      <- read.csv(file = trainCsv)
 testSet       <- read.csv(file = testCsv)
-validationSet <- read.csv(file = validationCsv)
 
-# Should be about 60/20/20 split
+# Should be about 2:1 split
 dim(trainSet)
 dim(testSet)
-dim(validationSet)
 
 # Should not be identical tables
-table(trainSet$user,      trainSet$classe)
-table(testSet$user,       testSet$classe)
-table(validationSet$user, validationSet$classe)
+table(trainSet$user, trainSet$classe)
+table(testSet$user,  testSet$classe)
 
-# Should all be true
+# Should not intersect
 assert_that(length(intersect(trainSet$Column1, testSet$Column1)) == 0)
-assert_that(length(intersect(trainSet$Column1, validationSet$Column1)) == 0)
-assert_that(length(intersect(testSet$Column1,  validationSet$Column1)) == 0)
 ```
 
 
@@ -137,17 +123,26 @@ assert_that(length(intersect(testSet$Column1,  validationSet$Column1)) == 0)
 We see blanks, NA, and '#DIV/0!' values and this causes some numeric
 fields to be read in as factors:
 ```{r}
-trainSet <- read.csv('./data/train.csv')
+trainSet <- read.csv('./data/my-train.csv')
 str(trainSet)
 ```
 
 Reread the file and map the wierd values to NA and suppress factor creation:
 ```{r}
-trainSet <- read.csv('./data/train.csv', 
+trainSet <- read.csv('./data/my-train.csv', 
                      na.string = c('', 'NA', '#DIV/0!'),
                      stringsAsFactors = FALSE)
 assert_that(length(grep('#DIV', summary(trainSet))) == 0)
 str(trainSet)
+```
+
+Do the same mappings on the 'test' portion of the training set:
+```{r}
+testSet <- read.csv('./data/my-test.csv', 
+                     na.string = c('', 'NA', '#DIV/0!'),
+                     stringsAsFactors = FALSE)
+assert_that(length(grep('#DIV', summary(testSet))) == 0)
+str(testSet)
 ```
 
 #### Remove Time-Windowed Metrics
@@ -218,94 +213,181 @@ str(trainSet)
 
 ### Decide on the Acceptance Criteria
 
-We are going to use *accurracy* as the acceptance measure.
-
+We are going to use overall *accurracy* as the acceptance measure. We will also report
+*out of bag error rate*, which is just 100% - accuracy%.
 
 ### Potential Models
 
-#### Classification Tree: rpart 
+#### Classification Tree: rpart() 
 
 Call the rpart functions directly, rather than implicitly through 
 caret/train:
 ```{r}
-#ctrl <- <- rpart.control()
-
 fit.rpart <- rpart(factor(classe) ~ .,  
                    data   = trainSet,  
-                   method = "class")
-#printcp(fit.rpart)   
+                   method = "class"
+                   )
+#summary(fit.rpart) # too much info
+# number of nodes
+```
+
+
+```{r}
+nRows  <- nrow(trainSet)
+nLeafs <- length(fit.rpart$where)
+c(nRows, nLeafs)
+```
+Created a leaf node for every row. Seems like extreme case of overfitting.
+
+Let's look at the summary of the 'cross-validations' [not clear what cv
+means from the rpart documentation]:
+```{r}
+printcp(fit.rpart)
+```
+Again, says a tree was made with 12674 nodes
+
+```{r}
 plotcp(fit.rpart)
 ```
 
-#### Classification Tree: rpart via train
+This plot shows that a tree of depth 23 was before the error rate was not 
+improved by 0.01, the value of cp parameter.
+The error rate improved with every level, which I would guess I would expect.
 
-Let's try a simple classification tree and see what kind of accuracy we get.
-This is mostly to work out the process of modeling building and evaluation.
-I expect we'll be doing random forests, SVDs, or some other more complex
-algorithm for the final analysis.
+This is supposed to do k-fold cross validation with 10 folds, by default. 
+How do we know the accuracy or misclassification rate of this tree? 
+It is not directly reported, but apparently we can compute it 
+from the root error rate and the xerror for a level [I cannot
+figure out how to reference the values in the structure]:
+```{r}
+# cv misclassification = root node error * xerror for tree depth
+# [how to get them from fit summary?]
+# For row 15, 22 splits, ...
+err <- 0.71540 * 0.38116
+acc <- 1 - err
+percent(c(acc, err))
+```
+
+Let's do a confusion matrix to get the error rate on the training set:
+```{r}
+rpart.predictions.train <- predict(fit.rpart, type = 'class')
+rpart.cm.train <- confusionMatrix(data = rpart.predictions.train, reference = trainSet$classe)
+rpart.cm.train 
+```
+This says the accuracy on the training set is 
+`r percent(rpart.cm.train$overall["Accuracy"])`.
+Comparable to the the computed value above.
+
+Apply to test set:
+```{r}
+rpart.predictions.test <- predict(fit.rpart, testSet, type = 'class')
+rpart.cm.test <- confusionMatrix(data = rpart.predictions.test, reference = testSet$classe)
+rpart.cm.test 
+```
+Accuracy on the test set is 
+`r percent(rpart.cm.test$overall["Accuracy"])`.
+
+Let's move along.
+
+
+#### Classification Tree: rpart via train() w/ varying cp 
+
+Let's try a rpart classification tree calling via train(), rather than 
+directly. The big difference here is train() will explore different values
+for cp, the complexity factor, whereas when we created via rpart(), cp was
+fixed at 0.01
 
 Create model doing 10-fold cross-validation:
 ```{r}
 trc <- trainControl(method = 'cv', number = 10)
-#rpg <- rpart.grid <- expand.grid(.cp=0.0001)
 
 rpart.model <- train(factor(classe) ~ ., 
                      data = trainSet, 
                      method    = "rpart",
                      trControl = trc)
-#                     tuneGrid  = rpg)
 rpart.model
 rpart.model$finalModel
-#printcp(rpart.model$finalModel)
 ```
+This, too, appears to create a tree with 12674 nodes. I don't get it.
 
-See what the accuracy is on the test data set:
+Figure out how to access cross-validated accuracy: 
 ```{r}
-rpart.predictions <- predict(rpart.model)
-rpart.cm <- confusionMatrix(data = rpart.predictions, reference = trainSet$classe)
-rpart.cm 
+#str(rpart.model)
+df       <- rpart.model$results
+bestcp   <- rpart.model$bestTune$cp
+accuracy <- df[df$cp == bestcp,'Accuracy']
+percent(accuracy)
 ```
-Wow, the overall accuracy on the training set is only `r percent(rpart.cm$overall["Accuracy"])`.
-This won't cut it.
+Wow, the cross-valided accuracy is only  `r percent(accuracy)`.
+Probably because train() chose a model with cp = 0.366, rather than 0.01 like rpart().
 
-But let's see what the accuracy is on the test data set:
+Just for grins, what was the accuracy is on the training data set:
 ```{r}
+rpart.predictions.train <- predict(rpart.model)
+rpart.cm.train          <- confusionMatrix(data = rpart.predictions.train, reference = trainSet$classe)
+rpart.cm.train 
 ```
 
+What is the accuracy on the test set:
+```{r}
+rpart.predictions.test <- predict(rpart.model, testSet)
+rpart.cm.test          <- confusionMatrix(data = rpart.predictions.test, reference = testSet$classe)
+rpart.cm.test 
+```
+Accuracy on the test set is `r percent(rpart.cm.test$overall["Accuracy"])`.
 
-#### Classification Tree: tree
+
+#### Classification Tree: rpart via train() w/ fixed cp = 0.01
+
+Let's try fixing cp = 0.01 and see if we can recreate the rpart() model:
+```{r}
+trc <- trainControl(method = 'cv', number = 10)
+rpg <- rpart.grid <- expand.grid(.cp=0.01)
+
+rpart.model <- train(factor(classe) ~ ., 
+                     data = trainSet, 
+                     method    = "rpart",
+                     trControl = trc,
+                     tuneGrid  = rpg)
+rpart.model
+```
+
+```{r, eval=TRUE, echo=FALSE}
+#str(rpart.model)
+df       <- rpart.model$results
+bestcp   <- rpart.model$bestTune$cp
+accuracy <- df[df$cp == bestcp,'Accuracy']
+```
+Ah, now we get an cv accuracy of `r percent(accuracy)` which is comparable to the rpart()
+model.
+
+TODO:   
+- So, how does train() chose the range of values for cp to explore?   
+- Should we use default values chosed by train() or specify our own?
+
+
+#### Classification Tree: tree()
 
 Let's call tree() directly and see if we get anything different from rpart():
 ```{r}
-set.seed(5321)
 tree.model <- tree(factor(classe) ~ ., data=trainSet)
 tree.model.summary <- summary(tree.model)
 tree.model.summary
 ```
 Creates a tree from `r length(tree.model.summary$used)` attributes 
 having `r tree.model.summary$size` leaf nodes 
-and has a missclassification error rate of 
-`r round(tree.model.summary$misclass[1]/tree.model.summary$misclass[2], 4)`  
+and has a misclassification error rate on the training set of 
+`r round(tree.model.summary$misclass[1]/tree.model.summary$misclass[2], 4)`.
 
+The accuracy on the training set was 
+`r percent(1 - tree.model.summary$misclass[1]/tree.model.summary$misclass[2])`.
 
 Let's look at the tree:
 ```{r}
 plot(tree.model); text(tree.model)
 ```
 
-Kinda ugly. 
-
-
-Let's see how well it predicts on the test data 
-[seems like this should be part of the tree result]:
-```{r}
-tree.predictions <- predict(tree.model, trainSet, type = 'class')
-tree.cm <- confusionMatrix(data = tree.predictions, reference = trainSet$classe)
-tree.cm 
-```
-Accuracy on training set is `r percent(tree.cm$overall["Accuracy"])`.
-Much better than rpart(). Why?
-
+Kinda ugly. [Is the entire tree really shown, or is it pruned for display?]
 
 Let's cross-validate (using 10 folds) using misclass and deviance as measures
 and see if we should prune the tree:
@@ -319,16 +401,99 @@ plot(dev.cv.tree.model)
 par(mfrow=c(1,1))
 ```
 Both graphs continue descreasing, suggesting that the tree is not overfitting
-and that most nodes are needed, say about 16.
+and that most nodes are needed. Leave the tree as it is; do not prune it.
 
-
-Look at the summaries:
+But what is the cross-validated accuracy/error? Where is it reported?
 ```{r}
-misclass.cv.tree.model
-dev.cv.tree.model
+# I cannot find out how to compute the cross-validated error rate
+# Not clear that it's really a cross-validation
 ```
 
-  
+Let's see how well it predicts on the test data 
+[seems like this should be part of the tree result]:
+```{r}
+tree.predictions.test <- predict(tree.model, testSet, type = 'class')
+tree.cm.test <- confusionMatrix(data = tree.predictions.test, reference = testSet$classe)
+tree.cm.test 
+```
+Accuracy on test set is `r percent(tree.cm.test$overall["Accuracy"])`.
+About like an rpart tree with cp=0.01.
+
+So a single tree isn't enough. Let's try a forest of trees ;-)
+
+#### Random Forest: randomForest()
+
+Some notes on Random Forest from [Random Forests]
+(http://www.stat.berkeley.edu/~breiman/RandomForests/cc_home.htm#overview)
+by Leo Breiman and Adele Cutler:  
+- Random forests does not overfit.  
+- There is no need for cross-validation or a separate test set to get an unbiased estimate of the test set error. It is estimated internally, during the run.
+
+Since we do not need to need to cross-validate, we will not use the caret train()
+function which does cross-validation by default. 
+We will create the forest by calling randomForest() directly.
+
+Link to documentation: 
+[Package 'randomForest'](https://cran.r-project.org/web/packages/randomForest/randomForest.pdf)
+
+```{r}
+rf.model <- randomForest(factor(classe) ~ ., data = trainSet)
+print(rf.model)
+```
+
+Figure out how to access the error rate:
+```{r}
+str(rf.model)
+error <- rf.model$err.rate[rf.model$ntree]
+accuracy <- 1 - error
+percent(c(accuracy, error))
+```
+The OOB estimate of error rate is `r percent(error)`.
+The estimate of accuracy is `r percent(accuracy)`.
+
+
+Plot error rate vs number of trees:
+```{r}
+plot(rf.model)
+```
+
+Seems like we have pretty good error rate with as little as 100 trees. 
+We could specify something less than the default 500 trees if performance were a concern.
+
+Verify error rate on training set:
+```{r}
+rf.predictions <- predict(rf.model)
+rf.cm <- confusionMatrix(data = rf.predictions, reference = trainSet$classe)
+rf.cm 
+```
+
+Apply to test set:
+```{r}
+rf.predictions.test <- predict(rf.model, testSet)
+rf.cm <- confusionMatrix(data = rf.predictions.test, reference = testSet$classe)
+rf.cm 
+```
+
+Looks like a random forest will be sufficient for this data set.
+
+#### Random Forest: randomForest() w/150 trees
+
+Let's see what accuracy we get by reduing the number of trees.
+
+```{r}
+rf.150.model <- randomForest(factor(classe) ~ ., data = trainSet, ntree = 150)
+print(rf.150.model)
+```
+
+```{r, eval=TRUE, echo=FALSE}
+error <- rf.150.model$err.rate[rf.150.model$ntree]
+accuracy <- 1 - error
+percent(c(accuracy, error))
+```
+The OOB estimate of error rate is `r percent(error)`.
+The estimate of accuracy is `r percent(accuracy)`.
+Essentially the same as with 500 trees.
+
 ### Stop Cluster
 
 Turn off parallelism:
