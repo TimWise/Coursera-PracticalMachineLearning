@@ -1,0 +1,190 @@
+---
+title: "PML Project - Exploratory Analysis - Cross-Validate by User"
+author: "Tim Wise"
+date: "April 2016"
+output: 
+  html_document:
+    toc: yes
+    toc_depth: 4
+---
+
+### Overview
+
+In the real world, an algorithm like the one we're developing 
+would be trained a one set of users and 
+applied to a new set for a *different person*.
+
+In this exercise, we'll partition the data the data by user. 
+Then we'll do a cross-validation, creating a models from N-1 users and
+testing in on the held out user. 
+We'll do that for each user, giving an N-fold
+cross-validation, where N is the number of users.
+
+We'll average the error rates of the different models to get a 
+cross-validated error rate and see if it's significantly different
+from the random forest we previously constructed.
+
+```{r}
+set.seed(3959648)
+```
+
+
+### Load libraries
+
+```{r}
+suppressMessages(library(AppliedPredictiveModeling))
+suppressMessages(library(caret))
+suppressMessages(library(rpart))
+suppressMessages(library(tree))
+suppressMessages(library(randomForest))
+
+#install.packages('assertthat')
+suppressMessages(library(assertthat))
+suppressMessages(library(dplyr))
+suppressMessages(library(scales))
+
+suppressMessages(library(doParallel))
+```
+
+
+### Download the datasets
+
+Set the working directory manually, to the directory of this .rmd file.
+
+Download the training, if necessary:
+```{r}
+url <- 'https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv'
+csv <- './data/pml-training.csv'
+
+if (!file.exists(csv)) {
+  download.file(url, destfile=csv)
+}
+```
+
+
+### Read in training set
+
+Read in data using lessons learned from first analysis:  
+- Map wierd values to NA  
+- Suppress factor creation   
+- Make outcome, classe, a factor
+
+```{r}
+allSet <- read.csv('./data/pml-training.csv', 
+                     na.string = c('', 'NA', '#DIV/0!'),
+                     stringsAsFactors = FALSE)
+
+allSet$classe <- as.factor(allSet$classe)
+```
+
+
+### Create helper functions for cleaning training sets
+
+Reading the paper for the data set, we find there are three kinds of metrics:  
+- Raw metrics reported by the sensors (accelerometer, gyroscope, and magnetometer)  
+- Derived metrics for roll, pitch, and yaw  
+- Summarizations (min, max, etc.) of the derived metrics  
+
+The summarization metrics are not reported for every observation. 
+They are only reported at the end of a sliding window.
+Because of this, we are going to exclude the window summarizations from our 
+analysis. 
+
+Clean the data:  
+- remove 'new window' rows containing window summary metrics 
+- remove columns that are 100% NA  
+- remove key (non-metric) columns  
+
+
+```{r}
+cleanTraining <- function(inSet) {
+  
+  ignoreCols <- c('Column1', 
+                'user_name', 
+                'raw_timestamp_part_1',
+                'raw_timestamp_part_2',
+                'cvtd_timestamp',
+                'new_window',
+                'num_window'
+                )
+  inSet %>% 
+    filter(new_window == 'no') %>%
+    select(which(colMeans(is.na(.)) < 1.0))  %>%
+    select(-one_of(ignoreCols)) -> outSet
+    
+  outSet 
+} 
+```
+
+
+Helper functions to get error rate and accuracy from a random forest:
+```{r}
+rfErrorRate <- function(rf = NULL) {
+  round(rf$err.rate[rf$ntree] * 100, 2)
+}
+
+rfAccuracy <- function(rf = NULL) {
+  round(100 - rfErrorRate(rf), 2)
+}
+
+cmAccuracy <- function(cm = NULL) {
+  round(cm$overall["Accuracy"] * 100, 2)
+} 
+```
+
+### Do k-fold cross-validation of randomForest, once for each user
+
+```{r}
+userNames <- unique(allSet$user_name)
+
+rfList <- list()
+cmList <- list()
+for (userName in userNames) {
+  
+  testSet  <- filter(allSet, user_name == userName)
+  trainSet <- filter(allSet, user_name != userName)
+  
+  trainSet <- cleanTraining(trainSet)
+  
+  rf <- randomForest(factor(classe) ~ ., data = trainSet, ntree = 150)
+  
+  predictions <- predict(rf, testSet)
+  cm <- confusionMatrix(data = predictions, reference = testSet$classe)
+  
+  rfList <- c(rfList, list(rf))
+  cmList <- c(cmList, list(cm))
+}
+```
+
+
+The results of the randomForest training:
+```{r}
+sapply(rfList, print)
+```
+
+The confusion matrices for test predictions:                            :
+```{r}
+sapply(cmList, print)
+```
+
+The accuracy percentage[0-100] for each fold:
+```{r}
+df <-  data.frame(train = sapply(rfList, rfAccuracy), 
+                  test  = sapply(cmList, cmAccuracy),
+                  row.names = NULL)
+df
+```
+
+Average accuracy [0-100] across all folds:
+```{r}
+colMeans(df)
+```
+
+Wow! The model fails badly when trained on one set of users and applied to another.
+It seems the model needs to be trained on the set of users on which it will be tested
+We can only home that the final test set is drawn from the users we're training on, otherwise
+we will not get 18/20 answers correct. 
+
+### Takeaway: Use traditional cross-validation to develop the model
+
+
