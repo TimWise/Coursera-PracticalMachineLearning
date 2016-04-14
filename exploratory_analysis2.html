@@ -122,6 +122,7 @@ $(document).ready(function () {
 <li><a href="#read-in-training-set">Read in training set</a></li>
 <li><a href="#create-helper-functions-for-cleaning-training-sets">Create helper functions for cleaning training sets</a></li>
 <li><a href="#do-k-fold-cross-validation-of-randomforest-once-for-each-user">Do k-fold cross-validation of randomForest, once for each user</a></li>
+<li><a href="#takeaway-use-traditional-cross-validation-to-develop-the-model">Takeaway: Use traditional cross-validation to develop the model</a></li>
 </ul>
 </div>
 
@@ -550,6 +551,10 @@ df</code></pre>
 <pre class="r"><code>colMeans(df)</code></pre>
 <pre><code>##    train     test 
 ## 99.68333 37.97500</code></pre>
+<p>Wow! The model fails badly when trained on one set of users and applied to another. It seems the model needs to be trained on the set of users on which it will be tested We can only home that the final test set is drawn from the users we’re training on, otherwise we will not get 18/20 answers correct.</p>
+</div>
+<div id="takeaway-use-traditional-cross-validation-to-develop-the-model" class="section level3">
+<h3>Takeaway: Use traditional cross-validation to develop the model</h3>
 </div>
 
 
