@@ -342,7 +342,7 @@ Accuracy on the test set is `r percent(rpart.cm.test$overall["Accuracy"])`.
 Let's try fixing cp = 0.01 and see if we can recreate the rpart() model:
 ```{r}
 trc <- trainControl(method = 'cv', number = 10)
-rpg <- rpart.grid <- expand.grid(.cp=0.01)
+rpg <- rpart.grid <- expand.grid(cp = c(0.01))
 
 rpart.model <- train(factor(classe) ~ ., 
                      data = trainSet, 
@@ -400,8 +400,8 @@ plot(misclass.cv.tree.model)
 plot(dev.cv.tree.model)
 par(mfrow=c(1,1))
 ```
-Both graphs continue descreasing, suggesting that the tree is not overfitting
-and that most nodes are needed. Leave the tree as it is; do not prune it.
+Both graphs continue decreasing, suggesting that all nodes are needed. 
+Leave the tree as it is; do not prune it.
 
 But what is the cross-validated accuracy/error? Where is it reported?
 ```{r}
@@ -493,6 +493,37 @@ percent(c(accuracy, error))
 The OOB estimate of error rate is `r percent(error)`.
 The estimate of accuracy is `r percent(accuracy)`.
 Essentially the same as with 500 trees.
+
+#### Random Forest: train() and cv w/150 trees
+
+Let use train() with 10-fold cross-validation and 
+see what we get for a random forest. 
+To control run time, use the randomForest() default
+value for mtry, which for classification models is the square root
+of the number of predictors:
+```{r}
+rf.train.trc   <- trainControl(method = 'cv', number = 10)
+
+rf.train.grid  <- expand.grid(mtry=c(floor(sqrt(ncol(trainSet)))))
+
+rf.train.model <- train(factor(classe) ~ ., 
+                        data      = trainSet, 
+                        method    = "rf",
+                        trControl = rf.train.trc,
+                        ntree     = 101,
+                        tuneGrid  = rf.train.grid)
+rf.train.model
+rf.train.model$finalModel
+```
+
+```{r, eval=TRUE, echo=FALSE}
+error <- rf.train.model$finalModel$err.rate[rf.train.model$finalModel$ntree]
+accuracy <- 1 - error
+percent(c(accuracy, error))
+```
+The OOB estimate of error rate is `r percent(error)`.
+The estimate of accuracy is `r percent(accuracy)`.
+About the same as a randomForest() without explicit cross-validation.
 
 ### Stop Cluster
 
