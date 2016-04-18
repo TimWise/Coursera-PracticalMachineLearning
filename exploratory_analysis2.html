@@ -118,11 +118,16 @@ $(document).ready(function () {
 <ul>
 <li><a href="#overview">Overview</a></li>
 <li><a href="#load-libraries">Load libraries</a></li>
+<li><a href="#start-cluster">Start Cluster</a></li>
 <li><a href="#download-the-datasets">Download the datasets</a></li>
 <li><a href="#read-in-training-set">Read in training set</a></li>
 <li><a href="#create-helper-functions-for-cleaning-training-sets">Create helper functions for cleaning training sets</a></li>
-<li><a href="#do-k-fold-cross-validation-of-randomforest-once-for-each-user">Do k-fold cross-validation of randomForest, once for each user</a></li>
+<li><a href="#do-k-fold-cross-validation-of-randomforest-once-for-each-user">Do k-fold cross-validation of randomForest, once for each user</a><ul>
+<li><a href="#round-1-saving-only-forests-and-confusion-results">Round 1: Saving only forests and confusion results</a></li>
+<li><a href="#round-2-hopefully-more-r-like-saving-traintest-sets-too">Round 2: Hopefully more R-like, saving train/test sets, too</a></li>
+</ul></li>
 <li><a href="#takeaway-use-traditional-cross-validation-to-develop-the-model">Takeaway: Use traditional cross-validation to develop the model</a></li>
+<li><a href="#stop-cluster">Stop Cluster</a></li>
 </ul>
 </div>
 
@@ -147,6 +152,12 @@ suppressMessages(library(dplyr))
 suppressMessages(library(scales))
 
 suppressMessages(library(doParallel))</code></pre>
+</div>
+<div id="start-cluster" class="section level3">
+<h3>Start Cluster</h3>
+<p>Turn on parallelism in hopes of speeding things up:</p>
+<pre class="r"><code>r.cluster &lt;- makeCluster(detectCores())
+registerDoParallel(r.cluster)</code></pre>
 </div>
 <div id="download-the-datasets" class="section level3">
 <h3>Download the datasets</h3>
@@ -183,8 +194,9 @@ allSet$classe &lt;- as.factor(allSet$classe)</code></pre>
 - remove key (non-metric) columns</p>
 <pre class="r"><code>cleanTraining &lt;- function(inSet) {
   
+  # leave user_name in as an identifier of the test set
+  # remove user_name when creating model
   ignoreCols &lt;- c('Column1', 
-                'user_name', 
                 'raw_timestamp_part_1',
                 'raw_timestamp_part_2',
                 'cvtd_timestamp',
@@ -213,6 +225,9 @@ cmAccuracy &lt;- function(cm = NULL) {
 </div>
 <div id="do-k-fold-cross-validation-of-randomforest-once-for-each-user" class="section level3">
 <h3>Do k-fold cross-validation of randomForest, once for each user</h3>
+<div id="round-1-saving-only-forests-and-confusion-results" class="section level4">
+<h4>Round 1: Saving only forests and confusion results</h4>
+<p>[We were a little naive on list manipulation and just appended to the end.]</p>
 <pre class="r"><code>userNames &lt;- unique(allSet$user_name)
 
 rfList &lt;- list()
@@ -224,7 +239,9 @@ for (userName in userNames) {
   
   trainSet &lt;- cleanTraining(trainSet)
   
-  rf &lt;- randomForest(factor(classe) ~ ., data = trainSet, ntree = 150)
+  rf &lt;- randomForest(factor(classe) ~ ., 
+                     data = select(trainSet, -user_name), 
+                     ntree = 150)
   
   predictions &lt;- predict(rf, testSet)
   cm &lt;- confusionMatrix(data = predictions, reference = testSet$classe)
@@ -236,7 +253,7 @@ for (userName in userNames) {
 <pre class="r"><code>sapply(rfList, print)</code></pre>
 <pre><code>## 
 ## Call:
-##  randomForest(formula = factor(classe) ~ ., data = trainSet, ntree = 150) 
+##  randomForest(formula = factor(classe) ~ ., data = select(trainSet,      -user_name), ntree = 150) 
 ##                Type of random forest: classification
 ##                      Number of trees: 150
 ## No. of variables tried at each split: 7
@@ -251,7 +268,7 @@ for (userName in userNames) {
 ## E    0    0    0    3 2928 0.001023541
 ## 
 ## Call:
-##  randomForest(formula = factor(classe) ~ ., data = trainSet, ntree = 150) 
+##  randomForest(formula = factor(classe) ~ ., data = select(trainSet,      -user_name), ntree = 150) 
 ##                Type of random forest: classification
 ##                      Number of trees: 150
 ## No. of variables tried at each split: 7
@@ -266,7 +283,7 @@ for (userName in userNames) {
 ## E    0    0    0    5 3037 0.0016436555
 ## 
 ## Call:
-##  randomForest(formula = factor(classe) ~ ., data = trainSet, ntree = 150) 
+##  randomForest(formula = factor(classe) ~ ., data = select(trainSet,      -user_name), ntree = 150) 
 ##                Type of random forest: classification
 ##                      Number of trees: 150
 ## No. of variables tried at each split: 7
@@ -281,7 +298,7 @@ for (userName in userNames) {
 ## E    0    0    3    6 2855 0.0031424581
 ## 
 ## Call:
-##  randomForest(formula = factor(classe) ~ ., data = trainSet, ntree = 150) 
+##  randomForest(formula = factor(classe) ~ ., data = select(trainSet,      -user_name), ntree = 150) 
 ##                Type of random forest: classification
 ##                      Number of trees: 150
 ## No. of variables tried at each split: 7
@@ -296,7 +313,7 @@ for (userName in userNames) {
 ## E    0    0    1    3 2827 0.0014129283
 ## 
 ## Call:
-##  randomForest(formula = factor(classe) ~ ., data = trainSet, ntree = 150) 
+##  randomForest(formula = factor(classe) ~ ., data = select(trainSet,      -user_name), ntree = 150) 
 ##                Type of random forest: classification
 ##                      Number of trees: 150
 ## No. of variables tried at each split: 7
@@ -311,7 +328,7 @@ for (userName in userNames) {
 ## E    0    0    1    5 2988 0.002004008
 ## 
 ## Call:
-##  randomForest(formula = factor(classe) ~ ., data = trainSet, ntree = 150) 
+##  randomForest(formula = factor(classe) ~ ., data = select(trainSet,      -user_name), ntree = 150) 
 ##                Type of random forest: classification
 ##                      Number of trees: 150
 ## No. of variables tried at each split: 7
@@ -551,10 +568,174 @@ df</code></pre>
 <pre class="r"><code>colMeans(df)</code></pre>
 <pre><code>##    train     test 
 ## 99.68333 37.97500</code></pre>
-<p>Wow! The model fails badly when trained on one set of users and applied to another. It seems the model needs to be trained on the set of users on which it will be tested We can only home that the final test set is drawn from the users we’re training on, otherwise we will not get 18/20 answers correct.</p>
+<p>Wow! <strong>The model fails badly when trained on one set of users and applied to another.</strong> It seems the model needs to be trained on the set of users on which it will be tested</p>
+<p>We can only hope that the final test set is drawn from the users we’re training on, otherwise we will not get 16/20 answers correct.</p>
+</div>
+<div id="round-2-hopefully-more-r-like-saving-traintest-sets-too" class="section level4">
+<h4>Round 2: Hopefully more R-like, saving train/test sets, too</h4>
+<p>[This time we save and retrieve to/from named list elements where we store the results for fold i. The name of a fold is the user_name that is held for the test set.]</p>
+<p>Initialize the lists where we’ll save the results:</p>
+<pre class="r"><code>userNames &lt;- unique(allSet$user_name)
+
+trainSets &lt;- list()
+testSets  &lt;- list()
+rfs &lt;- list()
+cms &lt;- list()</code></pre>
+<p>Create helper function to execute a fold for a given user:<br />
+- Partition into training and test sets by user name<br />
+- Train random forest - Test random forest</p>
+<p>Save all the results (data sets, forests, confusion matrices).</p>
+<pre class="r"><code>cvDoFoldForUser &lt;- function(userName) {
+  
+  testSets[[userName]]  &lt;&lt;- filter(allSet, user_name == userName)
+  trainSets[[userName]] &lt;&lt;- filter(allSet, user_name != userName) %&gt;% cleanTraining(.) 
+  
+  rfs[[userName]] &lt;&lt;- randomForest(factor(classe) ~ ., 
+                                   data  = select(trainSets[[userName]], -user_name), 
+                                   ntree = 150)
+  
+  predictions &lt;- predict(rfs[[userName]], testSets[[userName]])
+  cms[[userName]] &lt;&lt;- confusionMatrix(data = predictions, 
+                                      reference = testSets[[userName]]$classe)
+}</code></pre>
+<p>Execute the folds a fold, saving results to global vars:</p>
+<pre class="r"><code>devnull &lt;- lapply(userNames, cvDoFoldForUser)</code></pre>
+<p>Check the size of the training sets:</p>
+<pre class="r"><code>trainSets %&gt;% 
+  lapply(., function(df) c(nrows = nrow(df), ncols = ncol(df))) %&gt;% 
+  do.call(rbind,.)</code></pre>
+<pre><code>##          nrows ncols
+## carlitos 16160    54
+## pedro    16661    54
+## adelmo   15407    54
+## charles  15761    54
+## eurico   16200    54
+## jeremy   15891    54</code></pre>
+<p>Check the size of the test sets:</p>
+<pre class="r"><code>testSets %&gt;% 
+  lapply(., function(df) c(nrows = nrow(df), ncols = ncol(df)))  %&gt;%
+  do.call(rbind,.)</code></pre>
+<pre><code>##          nrows ncols
+## carlitos  3112   160
+## pedro     2610   160
+## adelmo    3892   160
+## charles   3536   160
+## eurico    3070   160
+## jeremy    3402   160</code></pre>
+<p>Check users and exercise types in each of the training sets:</p>
+<pre class="r"><code>trainSets %&gt;% 
+  lapply(., function(df) table(df$user_name, df$classe))</code></pre>
+<pre><code>## $carlitos
+##          
+##              A    B    C    D    E
+##   adelmo  1141  761  736  507  664
+##   charles  878  729  523  628  697
+##   eurico   847  583  482  570  534
+##   jeremy  1158  475  636  506  550
+##   pedro    625  496  490  458  486
+## 
+## $pedro
+##           
+##               A    B    C    D    E
+##   adelmo   1141  761  736  507  664
+##   carlitos  822  674  485  478  597
+##   charles   878  729  523  628  697
+##   eurico    847  583  482  570  534
+##   jeremy   1158  475  636  506  550
+## 
+## $adelmo
+##           
+##               A    B    C    D    E
+##   carlitos  822  674  485  478  597
+##   charles   878  729  523  628  697
+##   eurico    847  583  482  570  534
+##   jeremy   1158  475  636  506  550
+##   pedro     625  496  490  458  486
+## 
+## $charles
+##           
+##               A    B    C    D    E
+##   adelmo   1141  761  736  507  664
+##   carlitos  822  674  485  478  597
+##   eurico    847  583  482  570  534
+##   jeremy   1158  475  636  506  550
+##   pedro     625  496  490  458  486
+## 
+## $eurico
+##           
+##               A    B    C    D    E
+##   adelmo   1141  761  736  507  664
+##   carlitos  822  674  485  478  597
+##   charles   878  729  523  628  697
+##   jeremy   1158  475  636  506  550
+##   pedro     625  496  490  458  486
+## 
+## $jeremy
+##           
+##               A    B    C    D    E
+##   adelmo   1141  761  736  507  664
+##   carlitos  822  674  485  478  597
+##   charles   878  729  523  628  697
+##   eurico    847  583  482  570  534
+##   pedro     625  496  490  458  486</code></pre>
+<p>Check users and exercise types in the test sets:</p>
+<pre class="r"><code>testSets %&gt;% 
+  lapply(., function(df) table(df$user_name, df$classe))</code></pre>
+<pre><code>## $carlitos
+##           
+##              A   B   C   D   E
+##   carlitos 834 690 493 486 609
+## 
+## $pedro
+##        
+##           A   B   C   D   E
+##   pedro 640 505 499 469 497
+## 
+## $adelmo
+##         
+##             A    B    C    D    E
+##   adelmo 1165  776  750  515  686
+## 
+## $charles
+##          
+##             A   B   C   D   E
+##   charles 899 745 539 642 711
+## 
+## $eurico
+##         
+##            A   B   C   D   E
+##   eurico 865 592 489 582 542
+## 
+## $jeremy
+##         
+##             A    B    C    D    E
+##   jeremy 1177  489  652  522  562</code></pre>
+<p>Summarize the accuracies for each fold:</p>
+<pre class="r"><code>foldAccuracies &lt;- data.frame(train = sapply(rfs, rfAccuracy), 
+                             test  = sapply(cms, cmAccuracy))
+foldAccuracies</code></pre>
+<pre><code>##          train  test
+## carlitos 99.71 48.17
+## pedro    99.63 31.03
+## adelmo   99.71 18.45
+## charles  99.69 56.39
+## eurico   99.62 18.79
+## jeremy   99.70 45.59</code></pre>
+<p>Average accuracy [0-100] across all folds:</p>
+<pre class="r"><code>overallAccuracies &lt;- round(colMeans(foldAccuracies), 2)
+overallAccuracies</code></pre>
+<pre><code>## train  test 
+## 99.68 36.40</code></pre>
+<p>Again, test accuracies are suprisingly bad.</p>
+</div>
 </div>
 <div id="takeaway-use-traditional-cross-validation-to-develop-the-model" class="section level3">
 <h3>Takeaway: Use traditional cross-validation to develop the model</h3>
+</div>
+<div id="stop-cluster" class="section level3">
+<h3>Stop Cluster</h3>
+<p>Turn off parallelism:</p>
+<pre class="r"><code>stopCluster(r.cluster)</code></pre>
 </div>
 
 

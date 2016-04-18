@@ -47,6 +47,15 @@ suppressMessages(library(doParallel))
 ```
 
 
+### Start Cluster 
+
+Turn on parallelism in hopes of speeding things up:
+```{r}
+r.cluster <- makeCluster(detectCores())
+registerDoParallel(r.cluster)
+```
+
+
 ### Download the datasets
 
 Set the working directory manually, to the directory of this .rmd file.
@@ -99,8 +108,9 @@ Clean the data:
 ```{r}
 cleanTraining <- function(inSet) {
   
+  # leave user_name in as an identifier of the test set
+  # remove user_name when creating model
   ignoreCols <- c('Column1', 
-                'user_name', 
                 'raw_timestamp_part_1',
                 'raw_timestamp_part_2',
                 'cvtd_timestamp',
@@ -134,6 +144,11 @@ cmAccuracy <- function(cm = NULL) {
 
 ### Do k-fold cross-validation of randomForest, once for each user
 
+
+#### Round 1: Saving only forests and confusion results
+
+[We were a little naive on list manipulation and just appended to the end.]
+
 ```{r}
 userNames <- unique(allSet$user_name)
 
@@ -146,7 +161,9 @@ for (userName in userNames) {
   
   trainSet <- cleanTraining(trainSet)
   
-  rf <- randomForest(factor(classe) ~ ., data = trainSet, ntree = 150)
+  rf <- randomForest(factor(classe) ~ ., 
+                     data = select(trainSet, -user_name), 
+                     ntree = 150)
   
   predictions <- predict(rf, testSet)
   cm <- confusionMatrix(data = predictions, reference = testSet$classe)
@@ -180,11 +197,105 @@ Average accuracy [0-100] across all folds:
 colMeans(df)
 ```
 
-Wow! The model fails badly when trained on one set of users and applied to another.
+Wow! **The model fails badly when trained on one set of users and applied to another.**
 It seems the model needs to be trained on the set of users on which it will be tested
-We can only home that the final test set is drawn from the users we're training on, otherwise
-we will not get 18/20 answers correct. 
+
+We can only hope that the final test set is drawn from the users we're training on, otherwise
+we will not get 16/20 answers correct. 
+
+
+#### Round 2: Hopefully more R-like, saving train/test sets, too
+
+[This time we save and retrieve to/from named list elements where we
+store the results for fold i.
+The name of a fold is the user_name that is held for the test set.]
+
+Initialize the lists where we'll save the results:
+```{r}
+userNames <- unique(allSet$user_name)
+
+trainSets <- list()
+testSets  <- list()
+rfs <- list()
+cms <- list()
+```
+
+Create helper function to execute a fold for a given user:  
+- Partition into training and test sets by user name  
+- Train random forest
+- Test random forest
+
+Save all the results (data sets, forests, confusion matrices). 
+
+```{r}
+cvDoFoldForUser <- function(userName) {
+  
+  testSets[[userName]]  <<- filter(allSet, user_name == userName)
+  trainSets[[userName]] <<- filter(allSet, user_name != userName) %>% cleanTraining(.) 
+  
+  rfs[[userName]] <<- randomForest(factor(classe) ~ ., 
+                                   data  = select(trainSets[[userName]], -user_name), 
+                                   ntree = 150)
+  
+  predictions <- predict(rfs[[userName]], testSets[[userName]])
+  cms[[userName]] <<- confusionMatrix(data = predictions, 
+                                      reference = testSets[[userName]]$classe)
+}
+```
+
+Execute the folds a fold, saving results to global vars:  
+```{r}
+devnull <- lapply(userNames, cvDoFoldForUser)
+```
+
+Check the size of the training sets:
+```{r}
+trainSets %>% 
+  lapply(., function(df) c(nrows = nrow(df), ncols = ncol(df))) %>% 
+  do.call(rbind,.)
+```
+
+Check the size of the test sets:
+```{r}
+testSets %>% 
+  lapply(., function(df) c(nrows = nrow(df), ncols = ncol(df)))  %>%
+  do.call(rbind,.)
+```
+
+Check users and exercise types in each of the training sets:
+```{r}
+trainSets %>% 
+  lapply(., function(df) table(df$user_name, df$classe))
+```
+
+Check users and exercise types in the test sets:
+```{r}
+testSets %>% 
+  lapply(., function(df) table(df$user_name, df$classe))
+```
+
+Summarize the accuracies for each fold:
+```{r}
+foldAccuracies <- data.frame(train = sapply(rfs, rfAccuracy), 
+                             test  = sapply(cms, cmAccuracy))
+foldAccuracies
+```
+
+Average accuracy [0-100] across all folds:
+```{r}
+overallAccuracies <- round(colMeans(foldAccuracies), 2)
+overallAccuracies
+```
+
+Again, test accuracies are suprisingly bad.
+
 
 ### Takeaway: Use traditional cross-validation to develop the model
 
 
+### Stop Cluster
+
+Turn off parallelism:
+```{r}
+stopCluster(r.cluster)
+```
