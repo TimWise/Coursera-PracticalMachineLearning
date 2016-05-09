@@ -1,7 +1,7 @@
 ---
 title: "Predicting Good and Bad Weightlifting Form"
 author: "Tim Wise"
-date: "April 2016"
+date: "May 016"
 output: 
   html_document:
     toc: yes
@@ -38,46 +38,49 @@ One way was good form and the other 5 were variations of bad form.
 The goal of the model was to predict which of the 6 lifting forms was used 
 with an overall accuracy of greater than 80%.
 
-We built several types of models. 
-We tried simple classification trees, but achieved an accuracy of only 70-75%.
-We tried random forests and were able to get an unreal accuracy of 99%+, 
-with some caveats.
+After exploratory analysis and dimension reduction, we chose to use random forest models.
+We created models using two different types of cross-validation.
 
-Investigating further, we did two types of cross-validation with random forests. 
-The first was traditional k-fold cross-validation where *the data for each
-fold is drawn randomly*. 
-In this scenario, random forests had an accuracy of 99%+ on both the 
-training and test sets.
+In the first modeling exercise, we used **traditional k-fold cross-validation where
+the data for each fold is drawn randomly** from the training set.
+With this model, we were able to get an 
+unreal **accuracy of 99%+ on both the training and tests sets**.
 
-For the second cross-validation exercise, we used *a fold for each user*.
+In the second modeling exercise, we did a **6-fold cross-validation, one for each user*.
 We created 6 folds where we 
 withheld all the data for one user as a test set and the data for the other
 5 users was the training set. 
 This is a more realistic scenario,
 where the model is trained on one set of users then 
 tested on a new user it has not seen before.
-Under these conditions, accuracy of the random forest on the training sets
-was 99%+, but the accuracy on the test sets was a measly 38%!!
+Under these conditions, **the accuracy on the training sets
+was 99%+, but the accuracy on the test sets was a measly 38%**! 
 
-[TODO picked random forest results of quiz]
+In the end, we selected the traditional cross-validated model to use on the 
+20-question validation (quiz) data set.
+It had an accuracy of 100%  
+but only because the quiz data set had the same users that were
+in the training set.
+If the quiz data set was from a completely new users, we would expect
+any of our models to fail to achieve the 80% accuracy goal.
 
-
-As an aside, the [Atlas Wristband](http://www.atlaswearables.com/) fitness 
+[As an aside, the [Atlas Wristband](http://www.atlaswearables.com/) fitness 
 tracker is able to recognize different types of 
 weight lifting and body weight exercises. 
 We wonder whether it is able to recognize good and bad forms of exercise 
-and only count good repetitions.
-
+and only count good repetitions.]
 
 ## Analysis Details
 
-In this section, we walk through the steps to create and evaluate 3 models:  
-- a simple classification tree with traditional cross-validation  
-- a random forest with traditional cross-validation  
-- a random forest with per-user cross-validation  
+In this section, we walk through the steps used to 
+prepare the data, 
+build and evaluate the models, and
+apply the model to the validation set.
 
-For conciseness, we present only our final analysis. 
-To see the markdown document for this report and the results of our exploratory 
+For conciseness, we present only key excerpts of our final analysis. 
+To see the markdown document for this report 
+(which has all the code of our final analysis)
+and the results of our exploratory 
 analysis, visit our github repository here:
 [TODO] 
 
@@ -90,7 +93,7 @@ of the [Human Activity Project](http://groupware.les.inf.puc-rio.br/har).
 #### Load the Data Set
 
 In our exploratory analysis, we discovered that the training set looked
-like it was a saved Excel file and had a couple of odd strings.
+like it was a saved Excel file and had several values representing NAs.
 When we read the data set in, we map those values to NAs.
 
 ```{r, echo=TRUE, eval=TRUE}
@@ -102,18 +105,19 @@ dataSet$classe <- as.factor(dataSet$classe)
 #str(dataSet)
 ```
 
-Just a quick summary of the data set: 
-Two fields of interest are `user_name`
-identifying which user did the exercise and `classe` the form of the exercise
-that they did. The values for `classe` are `A` for good form and `B` through
-`E` for bad form.
+Let's look at a quick summary of the data set. 
+Two fields of interest set are `user_name`,
+identifying who did the exercise, and `classe`, the form of the exercise
+that they did. 
+The values for `classe` are `A` for good form and 
+`B` through `E` for variations of bad form.
 ```{r, echo=TRUE, eval=TRUE}
 table(dataSet$user_name, dataSet$classe)
 ```
 
 #### Partition into training and test sets
 
-Partition the given data set (pml-train.csv) into our 
+Partition the data set (pml-train.csv) into our 
 own training and test sets. 
 We will use our training set to train and cross-validate models.
 and use our test set to compare models.
@@ -395,49 +399,78 @@ The accuracy reported during random forest creation was
 `{r overallAccuracies[["test"]]`%**.
 
 
-#### Takeaway: Use Random Forest Trained on All Users
+#### Takeaway: Use Random Forest Traditional Cross-validation
 
-We will use the second model to submit predictions on the quiz data set.
+We will use the random forest with tranditional cross-validation,
+that was trained on all users in the data set, to submit predictions on the quiz data set.
 
 And we will hope that the quiz data was drawn from the 6 users we 
 trained on ;-) 
 
+We would not expect this model to do well on a data set with completely 
+different users.
+
 ### Make Predictions on Quiz Data Set
 
-Use model #2, the random forest with traditional cross-validation, to 
-make our predictions on the quiz data set.
+We did final validation by running both models on the 20-sample quiz 
+data set.
 
 ```{r, echo=TRUE, eval=TRUE}
 quizSet  <- read.csv(url('https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv'),
                      na.string = c('', 'NA', '#DIV/0!'),
                      stringsAsFactors = FALSE)
-```
 
-```{r, echo=TRUE, eval=TRUE}
-quiz.predictions <- predict(rf.model, quizSet)
-quiz.predictions
-```
+dir.create('./predictions', showWarning = FALSE)
 
-```{r, echo=TRUE, eval=TRUE}
-pml_write_files = function(x) {
+pml_write_file <- function(modelID, predictions) {
   
-  n = length(x)
-  for(i in 1:n) {
-    
-    filename = paste0("./predictions/problem_id_", i, ".txt")
-    write.table(x[i], 
+    filename <- sprintf("./predictions/model_predictions_%s.txt", modelID)
+    write.table(predictions, 
                 file  = filename, 
                 quote = FALSE, 
                 row.names = FALSE,
                 col.names = FALSE)
-  }
 }
-
-pml_write_files(quiz.predictions)
 ```
 
 
+```{r, echo=TRUE, eval=TRUE}
+quiz.predictions.rf <- predict(rf.model, quizSet)
+pml_write_file('RF', quiz.predictions.rf)
 
+quiz.predictions.rfs <- list()
+for (user in names(rfs)) {
+  quiz.predictions.rfs[[user]] <- predict(rfs[[user]], quizSet)
+  pml_write_file(user, quiz.predictions.rfs[[user]])
+}
+
+```
+
+The number of correct predictions of the random forest with random forest with traditional cross-validation was 20/20, or 100%. 
+This model was best because it was trained on the same set of users on which it was validated.
+
+For the random forests created during per-user cross-validation, the number of 
+correct predictions were:
+```{r, echo=FALSE, eval=TRUE}
+peruser.correct.predictions <- 
+  quiz.predictions.rfs %>%
+  lapply(., function(peruser.predictions) peruser.predictions == quiz.predictions.rf) %>%
+  sapply(., sum) 
+peruser.correct.predictions
+```
+```{r, echo=FALSE, eval=TRUE}
+peruser.accuracy <- mean(peruser.correct.predictions / nrow(quizSet))
+```
+For an average accuracy of 
+`r percent(peruser.accuracy)`.
+
+These models had more errors because they were trained on only 5 of the six users
+contained in the validation set.
+
+In the final analysis, we were able to achieve good predictions for the quiz 
+data set using the traditional random forest.
+But we would expect none of the models to do well if applied to a validation
+set that had users on which the models were not trained.
 
 ```{r, echo=FALSE, eval=TRUE}
 stopCluster(r.cluster)
