@@ -8,7 +8,7 @@ output:
     toc_depth: 5
 ---
 
-```{r, echo=FALSE}
+```{r, echo=FALSE, eval=TRUE}
 suppressMessages(library(AppliedPredictiveModeling))
 suppressMessages(library(caret))
 suppressMessages(library(rpart))
@@ -23,7 +23,7 @@ suppressMessages(library(scales))
 suppressMessages(library(doParallel))
 ```
 
-```{r, echo=FALSE}
+```{r, echo=FALSE, eval=TRUE}
 r.cluster <- makeCluster(detectCores())
 registerDoParallel(r.cluster)
 ```
@@ -93,7 +93,7 @@ In our exploratory analysis, we discovered that the training set looked
 like it was a saved Excel file and had a couple of odd strings.
 When we read the data set in, we map those values to NAs.
 
-```{r, echo=FALSE}
+```{r, echo=TRUE, eval=TRUE}
 dataSet <- read.csv(url('https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv'),
                      na.string = c('', 'NA', '#DIV/0!'),
                      stringsAsFactors = FALSE)
@@ -107,7 +107,7 @@ Two fields of interest are `user_name`
 identifying which user did the exercise and `classe` the form of the exercise
 that they did. The values for `classe` are `A` for good form and `B` through
 `E` for bad form.
-```{r, echo=FALSE}
+```{r, echo=TRUE, eval=TRUE}
 table(dataSet$user_name, dataSet$classe)
 ```
 
@@ -118,7 +118,7 @@ own training and test sets.
 We will use our training set to train and cross-validate models.
 and use our test set to compare models.
 
-```{r, echo=FALSE}
+```{r, echo=TRUE, eval=TRUE}
 set.seed(3959648)
 
 # 100% -> 66%, 34%
@@ -129,7 +129,7 @@ testSet    <- dataSet[-trainIndex,]
 
 Let's verify that the test set has data for all users and exercises.
 The training set should have about twice as many samples for each user and exercise:
-```{r, echo=FALSE}
+```{r, echo=TRUE, eval=TRUE}
 table(trainSet$user, trainSet$classe)
 table(testSet$user,  testSet$classe)
 ```
@@ -155,7 +155,7 @@ the 'cross-validation by user' data sets.
 We will remove the user_name column just before training the models
 
 Here's a helper function to do these tasks on a given data set:  
-```{r, echo=FALSE}
+```{r, echo=TRUE, eval=TRUE}
 cleanTraining <- function(inSet) {
   
   ignoreCols <- c('Column1', 
@@ -176,12 +176,12 @@ cleanTraining <- function(inSet) {
 ```
 
 Apply that function to the training data set:
-```{r, echo=FALSE}
+```{r, echo=TRUE, eval=TRUE}
 trainSet <- cleanTraining(trainSet)
 ```
 
 Here's the columns set we'll used to build our model (minus user_name):
-```{r, echo=FALSE}
+```{r, echo=TRUE, eval=TRUE}
 str(trainSet)
 ```
 
@@ -197,7 +197,7 @@ We fixed the `complexity parameter (cp)` to `0.01` which is the
 same value that would be used if we had created the model directly,
 using `rpart()`:
 
-```{r, echo=FALSE}
+```{r, echo=TRUE, eval=TRUE}
 rpart.model <- train(factor(classe) ~ ., 
                      data      = select(trainSet, -user_name), 
                      method    = 'rpart',
@@ -206,7 +206,7 @@ rpart.model <- train(factor(classe) ~ .,
 rpart.model
 ```
 
-```{r, eval=TRUE, echo=FALSE}
+```{r, echo=TRUE, eval=TRUE}
 #str(rpart.model)
 df       <- rpart.model$results
 bestcp   <- rpart.model$bestTune$cp
@@ -227,7 +227,7 @@ so use that rather than the default 500.
 - We set `mtry` to the default value used by `randomForest()`, 
 which for classification models is the square root
 of the number of predictors.
-```{r, echo=FALSE}
+```{r, echo=TRUE, eval=TRUE}
 rf.model <- train(factor(classe) ~ ., 
                         data      = select(trainSet, -user_name), 
                         method    = "rf",
@@ -237,10 +237,10 @@ rf.model <- train(factor(classe) ~ .,
 ```
 
 Let's look at the forest summary.
-```{r, echo=FALSE}
+```{r, echo=TRUE, eval=TRUE}
 rf.model$finalModel
 ```
-```{r, eval=TRUE, echo=FALSE}
+```{r, echo=TRUE, eval=TRUE}
 error <- rf.model$finalModel$err.rate[rf.model$finalModel$ntree]
 accuracy <- 1 - error
 percent(c(accuracy, error))
@@ -248,13 +248,13 @@ percent(c(accuracy, error))
 It is reporting the out-of-bag (OOB) estimate of error rate is `r percent(error)`.
 
 Let's look at the cross-validation results:
-```{r, echo=FALSE}
+```{r, echo=TRUE, eval=TRUE}
 rf.model
 ```
 The cross-validated accuracy is `r percent(accuracy)`.
 
 Let's see the accuracy on the test set:
-```{r, echo=FALSE}
+```{r, echo=TRUE, eval=TRUE}
 rf.predictions <- predict(rf.model, testSet)
 rf.cm <- confusionMatrix(data = rf.predictions, reference = testSet$classe)
 rf.cm 
@@ -275,7 +275,7 @@ Lets see what happens.
 
 First, get the list of user names and initialize the lists to hold
 the results of each fold:
-```{r, echo=FALSE}
+```{r, echo=TRUE, eval=TRUE}
 userNames <- unique(dataSet$user_name)
 
 trainSets <- list() # training data sets
@@ -291,7 +291,7 @@ Create helper function to execute a fold for a given user:
 - Make predictions on test set
 
 Save all the results (data sets, forests, confusion matrices) by user name.
-```{r, echo=FALSE}
+```{r, echo=TRUE, eval=TRUE}
 cvDoFoldForUser <- function(userName) {
   
   testSets[[userName]]  <<- filter(dataSet, user_name == userName)
@@ -309,7 +309,7 @@ cvDoFoldForUser <- function(userName) {
 ```
 
 Execute all folds saving results to global vars:  
-```{r, echo=FALSE}
+```{r, echo=TRUE, eval=TRUE}
 devnull <- lapply(userNames, cvDoFoldForUser)
 ```
 
@@ -318,14 +318,14 @@ devnull <- lapply(userNames, cvDoFoldForUser)
 Check users and exercise types in each of the named training sets.
 The name of the data set is the user that was withheld, so there
 so be no data for that user in the training set:
-```{r, echo=FALSE}
+```{r, echo=TRUE, eval=TRUE}
 trainSets %>% 
   lapply(., function(df) table(df$user_name, df$classe))
 ```
 
 Check users and exercise types in the test sets. 
 In the test sets, there should data for only one user:
-```{r, echo=FALSE}
+```{r, echo=TRUE, eval=TRUE}
 testSets %>% 
   lapply(., function(df) table(df$user_name, df$classe))
 ```
@@ -336,7 +336,7 @@ Everything looks good in the data sets.
 
 Let's dump the random forest info for each fold:
 
-```{r, echo=FALSE}
+```{r, echo=TRUE, eval=TRUE}
 rfs
 ```
 
@@ -346,7 +346,7 @@ But now let's look at the results of the predictions on the test set.
 ##### Review Test Results in Confusion Matrices
 
 Dump the confusion matrices for the test predictions for each fold:
-```{r, echo=FALSE}
+```{r, echo=TRUE, eval=TRUE}
 cms
 ```
 
@@ -359,7 +359,7 @@ the majority of their exercises being classified as Type E.
 First some helper functions to get 
 error rate and accuracy from random forests
 and confusion matrices. Scale from 0-1 to 0-100:
-```{r, echo=FALSE}
+```{r, echo=TRUE, eval=TRUE}
 rfErrorRate <- function(rf = NULL) {
   round(rf$err.rate[rf$ntree] * 100, 2)
 }
@@ -374,14 +374,14 @@ cmAccuracy <- function(cm = NULL) {
 ```
 
 Summarize the accuracy for each fold:
-```{r, echo=FALSE}
+```{r, echo=TRUE, eval=TRUE}
 foldAccuracies <- data.frame(train = sapply(rfs, rfAccuracy), 
                              test  = sapply(cms, cmAccuracy)) 
 foldAccuracies
 ```
 
 Average all folds to get the cross-validated accuracy:
-```{r, echo=FALSE}
+```{r, echo=TRUE, eval=TRUE}
 overallAccuracies <- foldAccuracies %>% 
                        summarise_each(funs(mean)) %>%
                        round(., 2)
@@ -407,18 +407,18 @@ trained on ;-)
 Use model #2, the random forest with traditional cross-validation, to 
 make our predictions on the quiz data set.
 
-```{r, echo=FALSE}
+```{r, echo=TRUE, eval=TRUE}
 quizSet  <- read.csv(url('https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv'),
                      na.string = c('', 'NA', '#DIV/0!'),
                      stringsAsFactors = FALSE)
 ```
 
-```{r, echo=FALSE}
+```{r, echo=TRUE, eval=TRUE}
 quiz.predictions <- predict(rf.model, quizSet)
 quiz.predictions
 ```
 
-```{r, echo=FALSE}
+```{r, echo=TRUE, eval=TRUE}
 pml_write_files = function(x) {
   
   n = length(x)
@@ -439,7 +439,7 @@ pml_write_files(quiz.predictions)
 
 
 
-```{r, echo=FALSE}
+```{r, echo=FALSE, eval=TRUE}
 stopCluster(r.cluster)
 ```
 
