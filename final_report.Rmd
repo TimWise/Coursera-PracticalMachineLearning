@@ -6,6 +6,7 @@ output:
   html_document:
     toc: yes
     toc_depth: 5
+knit: (function(inputFile, encoding) { rmarkdown::render(inputFile, encoding = encoding, output_file = file.path(dirname(inputFile), 'index.html')) })
 ---
 
 ```{r, echo=FALSE, eval=TRUE}
