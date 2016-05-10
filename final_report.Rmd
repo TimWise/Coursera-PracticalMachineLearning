@@ -1,7 +1,7 @@
 ---
 title: "Predicting Good and Bad Weightlifting Form"
 author: "Tim Wise"
-date: "May 016"
+date: "May 2016"
 output: 
   html_document:
     toc: yes
@@ -33,20 +33,20 @@ registerDoParallel(r.cluster)
 The goal of this project was to create a predictive model to identify good and 
 bad weight lifting form.
 The data set we used was collected from accelerometers on the belt, forearm, arm, and dumbbell 
-of participants as they did dumbbell curls 6 different ways.
+of 6 participants as they did dumbbell curls 6 different ways.
 One way was good form and the other 5 were variations of bad form.
 The goal of the model was to predict which of the 6 lifting forms was used 
 with an overall accuracy of greater than 80%.
 
-After exploratory analysis and dimension reduction, we chose to use random forest models.
+We chose to use random forest models.
 We created models using two different types of cross-validation.
-
 In the first modeling exercise, we used **traditional k-fold cross-validation where
 the data for each fold is drawn randomly** from the training set.
 With this model, we were able to get an 
 unreal **accuracy of 99%+ on both the training and tests sets**.
 
-In the second modeling exercise, we did a **6-fold cross-validation, one for each user*.
+In the second modeling exercise, we did a 
+**per-user 6-fold cross-validation, one fold for each user**.
 We created 6 folds where we 
 withheld all the data for one user as a test set and the data for the other
 5 users was the training set. 
@@ -61,7 +61,7 @@ In the end, we selected the traditional cross-validated model to use on the
 It had an accuracy of 100%  
 but only because the quiz data set had the same users that were
 in the training set.
-If the quiz data set was from a completely new users, we would expect
+If the quiz data set was from completely new users, we would expect
 any of our models to fail to achieve the 80% accuracy goal.
 
 [As an aside, the [Atlas Wristband](http://www.atlaswearables.com/) fitness 
@@ -75,14 +75,13 @@ and only count good repetitions.]
 In this section, we walk through the steps used to 
 prepare the data, 
 build and evaluate the models, and
-apply the model to the validation set.
-
-For conciseness, we present only key excerpts of our final analysis. 
-To see the markdown document for this report 
-(which has all the code of our final analysis)
-and the results of our exploratory 
-analysis, visit our github repository here:
-[TODO] 
+apply the model to the validation (quiz) set.
+For conciseness, we echo only key exerpts of this analysis. 
+To see all the analysis code, see the R markdown document for this report,
+visit our github repository here:
+[TODO]
+That repository also has the results of our exploratory 
+analysis. 
 
 For more information on the original data set, see the 
 [Weight Lifting Excercises Dataset]( http://groupware.les.inf.puc-rio.br/har#weight_lifting_exercises) 
@@ -102,45 +101,28 @@ dataSet <- read.csv(url('https://d396qusza40orc.cloudfront.net/predmachlearn/pml
                      stringsAsFactors = FALSE)
 
 dataSet$classe <- as.factor(dataSet$classe)
-#str(dataSet)
 ```
 
-Let's look at a quick summary of the data set. 
-Two fields of interest set are `user_name`,
+```{r, echo=FALSE, eval=FALSE}
+str(dataSet)
+```
+
+Two fields of interest for our analysis are `user_name`,
 identifying who did the exercise, and `classe`, the form of the exercise
 that they did. 
 The values for `classe` are `A` for good form and 
-`B` through `E` for variations of bad form.
+`B` through `E` for variations of bad form. 
+Here's a table of the number of observations for each user doing each exercise form:
 ```{r, echo=TRUE, eval=TRUE}
 table(dataSet$user_name, dataSet$classe)
 ```
 
-#### Partition into training and test sets
-
-Partition the data set (pml-train.csv) into our 
-own training and test sets. 
-We will use our training set to train and cross-validate models.
-and use our test set to compare models.
-
-```{r, echo=TRUE, eval=TRUE}
-set.seed(3959648)
-
-# 100% -> 66%, 34%
-trainIndex <- createDataPartition(dataSet$classe, p = 0.66, list=FALSE)
-trainSet   <- dataSet[ trainIndex,]
-testSet    <- dataSet[-trainIndex,]
-```
-
-Let's verify that the test set has data for all users and exercises.
-The training set should have about twice as many samples for each user and exercise:
-```{r, echo=TRUE, eval=TRUE}
-table(trainSet$user, trainSet$classe)
-table(testSet$user,  testSet$classe)
-```
 
 #### Dimension Reduction: Remove Sparse Time-Windowed Metrics
 
-Reading the paper for the data set, we find there are three kinds of metrics
+Reading the publised paper for the data set 
+([Qualitative Activity Recognition of Weight Lifting Exercises](http://groupware.les.inf.puc-rio.br/public/papers/2013.Velloso.QAR-WLE.pdf)), 
+we find there are three kinds of metrics
 in the data set:  
 - Raw metrics reported by the sensors (accelerometer, gyroscope, and magnetometer)  
 - Derived metrics for roll, pitch, and yaw  
@@ -155,8 +137,8 @@ which are reported for every observation.
 And, of course, we need to remove the identifier fields. This includes
 row numbers, window ids, and time stamps.
 We leave the user_name column, for now, so that we can create
-the 'cross-validation by user' data sets. 
-We will remove the user_name column just before training the models
+the  data sets per-user cross-validated model. 
+We will remove the user_name column when training the models.
 
 Here's a helper function to do these tasks on a given data set:  
 ```{r, echo=TRUE, eval=TRUE}
@@ -179,58 +161,55 @@ cleanTraining <- function(inSet) {
 } 
 ```
 
-Apply that function to the training data set:
-```{r, echo=TRUE, eval=TRUE}
-trainSet <- cleanTraining(trainSet)
-```
-
-Here's the columns set we'll used to build our model (minus user_name):
-```{r, echo=TRUE, eval=TRUE}
-str(trainSet)
+Here are the columns we'll used to build our model (minus user_name):
+```{r, echo=FALSE, eval=TRUE}
+str(cleanTraining(dataSet))
 ```
 
 
-### Evaluate Different Models
+### Evaluate Random Forest with Traditional Cross-validation
 
-#### Classification Tree with Traditional Cross-validation
+In this model, we build build a random forest doing traditional
+10-fold cross-validation.  
 
-The first model is a simple classification model. 
-We used the `train()` function of the `caret` package 
-to create the model and do 10-fold cross-validation. 
-We fixed the `complexity parameter (cp)` to `0.01` which is the 
-same value that would be used if we had created the model directly,
-using `rpart()`:
+#### Partition into training and test sets
 
-```{r, echo=TRUE, eval=TRUE}
-rpart.model <- train(factor(classe) ~ ., 
-                     data      = select(trainSet, -user_name), 
-                     method    = 'rpart',
-                     trControl = trainControl(method = 'cv', number = 10),
-                     tuneGrid  = expand.grid(cp = c(0.01))) 
-rpart.model
-```
+Partition the data set (pml-train.csv) into our 
+own training and test sets. 
+We will use our training set to train and cross-validate this model then
+use our test set to independently evaluate the accuracy of the model.
 
 ```{r, echo=TRUE, eval=TRUE}
-#str(rpart.model)
-df       <- rpart.model$results
-bestcp   <- rpart.model$bestTune$cp
-rpart.accuracy <- df[df$cp == bestcp,'Accuracy']
+set.seed(3959648)
+
+# 100% -> 66%, 34%
+trainIndex <- createDataPartition(dataSet$classe, p = 0.66, list=FALSE)
+
+trainSet   <- dataSet[ trainIndex,]
+testSet    <- dataSet[-trainIndex,]
+
+trainSet   <- cleanTraining(trainSet)
 ```
-The cross-validated overall accuracy of the classification model was `r percent(rpart.accuracy)`.
-This is not greater than our goal of 80%, so let's explore other options.
 
+```{r, echo=FALSE, eval=FALSE}
+# Let's verify that the test set has data for all users and exercises.
+# The training set should have about twice as many samples for each user and exercise:
+table(trainSet$user, trainSet$classe)
+table(testSet$user,  testSet$classe)
+```
 
-#### Random Forest with Traditional Cross-validation
+#### Build a Cross-validated Model
 
-The second model is a random forest where we do traditional
-10-fold cross-validation. 
-Again, we use `train()` to run the cross-validation and 
-we fix the random forest parameters:  
+We use `train()` to create the model and run the cross-validation.
+
+We set the `ntree` and `mtry` parameters for the random forest
+to stop `train()` from doing a search across:
 - Exploratory analysis showed that accuracy converged after about ~100 trees, 
 so use that rather than the default 500.   
-- We set `mtry` to the default value used by `randomForest()`, 
+- Set `mtry` to the default value used by `randomForest()`, 
 which for classification models is the square root
 of the number of predictors.
+
 ```{r, echo=TRUE, eval=TRUE}
 rf.model <- train(factor(classe) ~ ., 
                         data      = select(trainSet, -user_name), 
@@ -238,24 +217,25 @@ rf.model <- train(factor(classe) ~ .,
                         ntree     = 101,
                         trControl = trainControl(method = 'cv', number = 10),
                         tuneGrid  = expand.grid(mtry=c(floor(sqrt(ncol(trainSet)))))) 
-```
-
-Let's look at the forest summary.
-```{r, echo=TRUE, eval=TRUE}
 rf.model$finalModel
 ```
-```{r, echo=TRUE, eval=TRUE}
+```{r, echo=FALSE, eval=TRUE}
 error <- rf.model$finalModel$err.rate[rf.model$finalModel$ntree]
 accuracy <- 1 - error
-percent(c(accuracy, error))
 ```
-It is reporting the out-of-bag (OOB) estimate of error rate is `r percent(error)`.
+
+It is reporting the out-of-bag (OOB) estimate of error rate is `r percent(error)`, 
+or an accuracy of `r percent(accuracy)`.
+
+#### What is the Cross-validated Accuracy?
 
 Let's look at the cross-validation results:
 ```{r, echo=TRUE, eval=TRUE}
 rf.model
 ```
 The cross-validated accuracy is `r percent(accuracy)`.
+
+#### What is the Accuracy on the Test Set?
 
 Let's see the accuracy on the test set:
 ```{r, echo=TRUE, eval=TRUE}
@@ -266,35 +246,27 @@ rf.cm
 
 The overall accuracy on the test set was `r percent(rf.cm$overall["Accuracy"])`
 
-It looks like random forest satisfies our desired accuracy. 
-But let's do one last test.
+This model satisfies our desired accuracy of > 80%. 
 
 
-#### Random Forest with Per-User Cross-validation
+### Build Random Forest with Per-User Cross-validation
 
-Our last model is a random forest where we create train/test sets per user.
-The model is trained on one set of users and 
+In this section, we build and cross-validate with per-user data sets.
+A model is trained on one set of users and 
 tested on another user it hasn't seen before.
-Lets see what happens.
+We have execute our own folds and 
+compute cross-validation accuracy from the fold results.
 
-First, get the list of user names and initialize the lists to hold
-the results of each fold:
-```{r, echo=TRUE, eval=TRUE}
-userNames <- unique(dataSet$user_name)
+#### Execute the Per-user Folds
 
-trainSets <- list() # training data sets
-testSets  <- list() # testing data sets
-rfs       <- list() # random forests
-cms       <- list() # confuction matrics
-```
+First, we create a helper function to execute a fold for a given user as follows:  
+1. Partition into training and test sets by user name  
+2. Clean the training set  
+3. Create random forest on training set (removing the user_name from training set)  
+4. Make predictions on test set and create a confusion matrix
 
-Create helper function to execute a fold for a given user:  
-- Partition into training and test sets by user name  
-- Clean the training set
-- Create random forest on training set
-- Make predictions on test set
-
-Save all the results (data sets, forests, confusion matrices) by user name.
+All the results (data sets, forests, confusion matrices) are saved in global 
+lists by user name.
 ```{r, echo=TRUE, eval=TRUE}
 cvDoFoldForUser <- function(userName) {
   
@@ -304,7 +276,7 @@ cvDoFoldForUser <- function(userName) {
   
   rfs[[userName]] <<- randomForest(factor(classe) ~ ., 
                                    data  = select(trainSets[[userName]], -user_name), 
-                                   ntree = 150)
+                                   ntree = 101)
   
   predictions <- predict(rfs[[userName]], testSets[[userName]])
   cms[[userName]] <<- confusionMatrix(data = predictions, 
@@ -312,23 +284,30 @@ cvDoFoldForUser <- function(userName) {
 }
 ```
 
-Execute all folds saving results to global vars:  
+Execute all folds, saving results to global lists:  
 ```{r, echo=TRUE, eval=TRUE}
+userNames <- unique(dataSet$user_name)
+
+trainSets <- list() # training data sets
+testSets  <- list() # testing data sets
+rfs       <- list() # random forests
+cms       <- list() # confuction matrics
+
 devnull <- lapply(userNames, cvDoFoldForUser)
 ```
 
-##### Verify Per-user Training and Test Sets
+#### Verify Per-user Training and Test Sets
 
 Check users and exercise types in each of the named training sets.
 The name of the data set is the user that was withheld, so there
-so be no data for that user in the training set:
+only data for the other users in the training set:
 ```{r, echo=TRUE, eval=TRUE}
 trainSets %>% 
   lapply(., function(df) table(df$user_name, df$classe))
 ```
 
 Check users and exercise types in the test sets. 
-In the test sets, there should data for only one user:
+In the test sets, there should be data for only one user:
 ```{r, echo=TRUE, eval=TRUE}
 testSets %>% 
   lapply(., function(df) table(df$user_name, df$classe))
@@ -336,7 +315,7 @@ testSets %>%
 
 Everything looks good in the data sets.
 
-##### Review Results of Random Forest Creation 
+#### What is the Accuracy on Training Sets?
 
 Let's dump the random forest info for each fold:
 
@@ -344,25 +323,30 @@ Let's dump the random forest info for each fold:
 rfs
 ```
 
-The accuracy for each fold is reported to be 99%+, as before.  
-But now let's look at the results of the predictions on the test set.
+The out-of-bag (OOB) estimates of error rate is `< 1%` for all folds, 
+or a `> 99%` accuracy on the training sets. 
 
-##### Review Test Results in Confusion Matrices
+That looks encouraging, let's look at the results of the predictions on the test set.
+
+#### What is the Accuracy on the Test Sets?
 
 Dump the confusion matrices for the test predictions for each fold:
 ```{r, echo=TRUE, eval=TRUE}
 cms
 ```
 
-**The accuracy on the test sets are all less than 51%!!** 
+**The accuracy on the test sets are all less than 55%!!** 
+
 And the results for `adelmo` and `eurico` are particularly bad with 
 the majority of their exercises being classified as Type E. 
 
-##### Compute Cross-validated Accuracy
+#### What is the Cross-validated Accuracy?
 
-First some helper functions to get 
+Compute the cross-validated accuracy by averaging the accuracy of all folds.
+
+First, some helper functions to get the
 error rate and accuracy from random forests
-and confusion matrices. Scale from 0-1 to 0-100:
+and confusion matrices. Scale from 0-1 to 0-100  
 ```{r, echo=TRUE, eval=TRUE}
 rfErrorRate <- function(rf = NULL) {
   round(rf$err.rate[rf$ntree] * 100, 2)
@@ -392,30 +376,27 @@ overallAccuracies <- foldAccuracies %>%
 overallAccuracies
 ```
 
-Wow. Look at this.
+Wow. Look at this: 
 The accuracy reported during random forest creation was 
-`{r overallAccuracies[["train"]]`%,
+`r overallAccuracies[["train"]]`%,
 **yet the accuracy on the test sets was only 
-`{r overallAccuracies[["test"]]`%**.
+`r overallAccuracies[["test"]]`%**.
 
 
-#### Takeaway: Use Random Forest Traditional Cross-validation
+### Takeaway: Use Random Forest Traditional Cross-validation
 
-We will use the random forest with tranditional cross-validation,
+We will use the random forest with traditional cross-validation,
 that was trained on all users in the data set, to submit predictions on the quiz data set.
-
-And we will hope that the quiz data was drawn from the 6 users we 
-trained on ;-) 
-
-We would not expect this model to do well on a data set with completely 
-different users.
+We will hope that the quiz data was drawn from the 6 users we 
+trained on.
+If the quiz data is for different users we do not expect this model to do well. 
 
 ### Make Predictions on Quiz Data Set
 
 We did final validation by running both models on the 20-sample quiz 
 data set.
 
-```{r, echo=TRUE, eval=TRUE}
+```{r, echo=FALSE, eval=TRUE}
 quizSet  <- read.csv(url('https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv'),
                      na.string = c('', 'NA', '#DIV/0!'),
                      stringsAsFactors = FALSE)
@@ -434,7 +415,7 @@ pml_write_file <- function(modelID, predictions) {
 ```
 
 
-```{r, echo=TRUE, eval=TRUE}
+```{r, echo=FALSE, eval=TRUE}
 quiz.predictions.rf <- predict(rf.model, quizSet)
 pml_write_file('RF', quiz.predictions.rf)
 
@@ -443,7 +424,6 @@ for (user in names(rfs)) {
   quiz.predictions.rfs[[user]] <- predict(rfs[[user]], quizSet)
   pml_write_file(user, quiz.predictions.rfs[[user]])
 }
-
 ```
 
 The number of correct predictions of the random forest with random forest with traditional cross-validation was 20/20, or 100%. 
@@ -463,7 +443,6 @@ peruser.accuracy <- mean(peruser.correct.predictions / nrow(quizSet))
 ```
 For an average accuracy of 
 `r percent(peruser.accuracy)`.
-
 These models had more errors because they were trained on only 5 of the six users
 contained in the validation set.
 
