@@ -1,6 +1,6 @@
 ### Published Reports
 
-- [Predicting Good and Bad Weightlifting Form](TODO)
+- [Predicting Good and Bad Weightlifting Form](http://timwise.github.io/Coursera-PracticalMachineLearning/)
 
 
 ### Project Description
